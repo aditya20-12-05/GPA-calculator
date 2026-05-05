@@ -433,6 +433,86 @@
     margin: 32px 0;
   }
 
+  /* Save bar */
+  .save-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 24px;
+    padding: 14px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .save-status {
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .save-status.saved { color: var(--accent2); }
+
+  .save-right { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .save-btn, .restore-btn, .clear-btn {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    padding: 7px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid;
+    transition: all 0.15s;
+  }
+
+  .save-btn {
+    background: rgba(200,245,90,0.1);
+    border-color: rgba(200,245,90,0.4);
+    color: var(--accent);
+  }
+  .save-btn:hover { background: rgba(200,245,90,0.2); }
+
+  .restore-btn {
+    background: rgba(90,245,200,0.08);
+    border-color: rgba(90,245,200,0.3);
+    color: var(--accent2);
+  }
+  .restore-btn:hover:not(:disabled) { background: rgba(90,245,200,0.18); }
+  .restore-btn:disabled, .clear-btn:disabled {
+    opacity: 0.3; cursor: not-allowed;
+  }
+
+  .clear-btn {
+    background: rgba(245,90,90,0.08);
+    border-color: rgba(245,90,90,0.3);
+    color: var(--danger);
+  }
+  .clear-btn:hover:not(:disabled) { background: rgba(245,90,90,0.18); }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 0.8rem;
+    padding: 10px 20px;
+    border-radius: 8px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+    z-index: 999;
+    white-space: nowrap;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
   @media (max-width: 600px) {
     .course-table thead th:nth-child(3),
     .course-row td:nth-child(3) { display: none; }
@@ -476,6 +556,19 @@
   <button class="add-sem-btn" id="addSemBtn" onclick="addSemester()">
     + Add Semester
   </button>
+
+  <!-- Save bar -->
+  <div class="save-bar">
+    <div class="save-left">
+      <span class="save-status" id="saveStatus">No saved data</span>
+    </div>
+    <div class="save-right">
+      <button class="save-btn" onclick="saveData()">💾 Save</button>
+      <button class="restore-btn" onclick="restoreData()" id="restoreBtn" disabled>↩ Restore</button>
+      <button class="clear-btn" onclick="clearSaved()" id="clearBtn" disabled>✕ Clear saved</button>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
 </div>
 
 <script>
@@ -785,10 +878,89 @@ function addSemester() {
   }, 50);
 }
 
+// ── Persistence ──
+
+const STORAGE_KEY = 'gpa_calculator_data';
+
+function saveData() {
+  const payload = {
+    savedAt: new Date().toISOString(),
+    semesters: semesters
+  };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  updateSaveUI();
+  showToast('✓ Data saved successfully');
+}
+
+function restoreData() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return;
+  try {
+    const payload = JSON.parse(raw);
+    semesters = payload.semesters;
+    renderAll();
+    updateSaveUI();
+    showToast('✓ Data restored');
+  } catch(e) {
+    showToast('✗ Could not restore data');
+  }
+}
+
+function clearSaved() {
+  if (!confirm('Clear all saved data? This cannot be undone.')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  updateSaveUI();
+  showToast('Saved data cleared');
+}
+
+function updateSaveUI() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  const statusEl = document.getElementById('saveStatus');
+  const restoreBtn = document.getElementById('restoreBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  if (raw) {
+    try {
+      const payload = JSON.parse(raw);
+      const d = new Date(payload.savedAt);
+      const when = d.toLocaleDateString(undefined, { day:'numeric', month:'short', year:'numeric' })
+        + ' ' + d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' });
+      statusEl.textContent = `Last saved: ${when}`;
+      statusEl.className = 'save-status saved';
+    } catch { statusEl.textContent = 'Saved data found'; }
+    restoreBtn.disabled = false;
+    clearBtn.disabled = false;
+  } else {
+    statusEl.textContent = 'No saved data';
+    statusEl.className = 'save-status';
+    restoreBtn.disabled = true;
+    clearBtn.disabled = true;
+  }
+}
+
+let toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
 // ── Init ──
-semesters.push(createSemData(1));
-semesters[0].forecast = false;
+const _saved = localStorage.getItem(STORAGE_KEY);
+if (_saved) {
+  try {
+    semesters = JSON.parse(_saved).semesters;
+  } catch(e) {
+    semesters.push(createSemData(1));
+    semesters[0].forecast = false;
+  }
+} else {
+  semesters.push(createSemData(1));
+  semesters[0].forecast = false;
+}
 renderAll();
+updateSaveUI();
 </script>
 </body>
 </html>
